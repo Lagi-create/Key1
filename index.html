@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Activation Key | Secure Share</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/otpauth/9.1.4/otpauth.umd.min.js"></script>
+    <style>
+        body { background-color: #f3f4f6; font-family: sans-serif; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen p-4">
+
+    <div class="bg-white p-8 rounded-xl shadow-lg w-full max-w-md">
+        
+        <div class="text-center mb-6">
+            <h1 class="text-2xl font-bold text-gray-800">Activation Key</h1>
+            <p class="text-sm text-gray-500">Secure Credential Sharing</p>
+        </div>
+
+        <div id="admin-view">
+            <h2 class="text-lg font-semibold mb-4 text-blue-600 border-b pb-2">Create Share Link</h2>
+            
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Service Name</label>
+                    <input type="text" id="input-service" placeholder="e.g. Netflix, AWS" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-2">
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Email / Username</label>
+                    <input type="text" id="input-email" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-2">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Password</label>
+                    <input type="text" id="input-pass" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-2">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">2FA Secret Key (Base32)</label>
+                    <input type="text" id="input-secret" placeholder="JBSWY3DPEHPK3PXP" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-2 font-mono bg-gray-50">
+                    <p class="text-xs text-gray-400 mt-1">Paste the text code provided by the service (not the QR image).</p>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Link Expiration (Hours)</label>
+                    <select id="input-hours" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2">
+                        <option value="1">1 Hour</option>
+                        <option value="24">24 Hours</option>
+                        <option value="168">7 Days</option>
+                        <option value="8760">No Expiration (1 Year)</option>
+                    </select>
+                </div>
+
+                <button onclick="generateLink()" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                    Generate Secure Link
+                </button>
+            </div>
+
+            <div id="result-area" class="hidden mt-6 p-4 bg-green-50 rounded-md border border-green-200">
+                <p class="text-sm text-green-800 font-bold mb-2">Link Generated!</p>
+                <textarea id="share-link" readonly class="w-full h-24 p-2 text-xs border rounded bg-white text-gray-600 break-all"></textarea>
+                <button onclick="copyLink()" class="mt-2 text-xs text-blue-600 hover:underline">Copy to Clipboard</button>
+            </div>
+        </div>
+
+        <div id="client-view" class="hidden">
+            <div id="expired-msg" class="hidden text-center text-red-600 font-bold py-10">
+                This link has expired.
+            </div>
+
+            <div id="active-content">
+                <h2 id="view-service" class="text-xl font-bold text-center mb-6 text-gray-800">Service</h2>
+
+                <div class="bg-gray-100 p-4 rounded-lg text-center mb-6 border border-gray-200">
+                    <p class="text-xs uppercase tracking-wide text-gray-500 mb-1">Current 2FA Code</p>
+                    <div id="totp-code" class="text-4xl font-mono font-bold text-blue-600 tracking-widest">--- ---</div>
+                    <div class="w-full bg-gray-300 h-1 mt-3 rounded-full overflow-hidden">
+                        <div id="progress-bar" class="bg-blue-500 h-full w-full transition-all duration-1000 ease-linear"></div>
+                    </div>
+                    <p class="text-xs text-gray-400 mt-2">Updates automatically</p>
+                </div>
+
+                <div class="space-y-3">
+                    <div class="flex justify-between items-center border-b pb-2">
+                        <div>
+                            <p class="text-xs text-gray-500">Email/User</p>
+                            <p id="view-email" class="font-mono text-sm text-gray-800 select-all"></p>
+                        </div>
+                        <button onclick="copyText('view-email')" class="text-blue-600 text-xs font-semibold">COPY</button>
+                    </div>
+
+                    <div class="flex justify-between items-center border-b pb-2">
+                        <div>
+                            <p class="text-xs text-gray-500">Password</p>
+                            <p id="view-pass" class="font-mono text-sm text-gray-800 select-all">••••••••</p>
+                        </div>
+                        <button onclick="revealPass()" class="text-blue-600 text-xs font-semibold">SHOW</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // --- Logic ---
+
+        // 1. Check if we are in Admin Mode or Client Mode
+        // We look for everything after the '#' in the URL
+        const hash = window.location.hash.substring(1); // Remove the '#'
+        
+        if (hash) {
+            // CLIENT MODE
+            document.getElementById('admin-view').classList.add('hidden');
+            document.getElementById('client-view').classList.remove('hidden');
+            loadClientView(hash);
+        } else {
+            // ADMIN MODE (Default)
+            // No action needed, HTML defaults to admin view
+        }
+
+        // --- Admin Functions ---
+
+        function generateLink() {
+            const service = document.getElementById('input-service').value;
+            const email = document.getElementById('input-email').value;
+            const pass = document.getElementById('input-pass').value;
+            const secret = document.getElementById('input-secret').value.replace(/\s/g, ''); // remove spaces
+            const hours = parseInt(document.getElementById('input-hours').value);
+
+            if(!service || !email || !pass || !secret) {
+                alert("Please fill in all fields.");
+                return;
+            }
+
+            // Calculate Expiration Timestamp
+            const expiresAt = Date.now() + (hours * 60 * 60 * 1000);
+
+            // Create Data Object
+            const data = {
+                s: service,
+                e: email,
+                p: pass,
+                k: secret,
+                x: expiresAt
+            };
+
+            // Encode Data (JSON -> Base64) to make the URL look clean (NOTE: NOT ENCRYPTION)
+            const jsonString = JSON.stringify(data);
+            const encoded = btoa(jsonString);
+
+            // Construct Link
+            const baseUrl = window.location.href.split('#')[0];
+            const finalLink = `${baseUrl}#${encoded}`;
+
+            // Show Result
+            document.getElementById('result-area').classList.remove('hidden');
+            document.getElementById('share-link').value = finalLink;
+        }
+
+        function copyLink() {
+            const linkBox = document.getElementById('share-link');
+            linkBox.select();
+            document.execCommand('copy');
+            alert("Link copied!");
+        }
+
+        // --- Client Functions ---
+
+        let secretKey = "";
+
+        function loadClientView(encodedData) {
+            try {
+                // Decode Data
+                const jsonString = atob(encodedData);
+                const data = JSON.parse(jsonString);
+
+                // Check Expiration
+                if (Date.now() > data.x) {
+                    document.getElementById('active-content').classList.add('hidden');
+                    document.getElementById('expired-msg').classList.remove('hidden');
+                    return;
+                }
+
+                // Populate UI
+                document.getElementById('view-service').innerText = data.s;
+                document.getElementById('view-email').innerText = data.e;
+                
+                // Store password in a data attribute to reveal later
+                document.getElementById('view-pass').dataset.realPass = data.p;
+                
+                secretKey = data.k;
+
+                // Start TOTP Generator
+                startTotpTicker();
+
+            } catch (e) {
+                alert("Invalid or corrupted link.");
+                window.location.hash = ""; // Reset to admin
+                window.location.reload();
+            }
+        }
+
+        function startTotpTicker() {
+            updateTotp(); // Run immediately
+            setInterval(updateTotp, 1000); // Run every second
+        }
+
+        function updateTotp() {
+            if(!secretKey) return;
+
+            // Use OTPAuth library
+            // Default Google Authenticator settings: Time based, 30sec, SHA1, 6 digits
+            const totp = new OTPAuth.TOTP({
+                algorithm: 'SHA1',
+                digits: 6,
+                period: 30,
+                secret: OTPAuth.Secret.fromBase32(secretKey)
+            });
+
+            const code = totp.generate();
+            
+            // Format code (e.g., 123 456)
+            const formatted = code.substring(0, 3) + " " + code.substring(3);
+            document.getElementById('totp-code').innerText = formatted;
+
+            // Update Progress Bar
+            const epoch = Math.floor(Date.now() / 1000);
+            const count = epoch % 30;
+            const percentage = ((30 - count) / 30) * 100;
+            document.getElementById('progress-bar').style.width = percentage + "%";
+        }
+
+        function revealPass() {
+            const passElem = document.getElementById('view-pass');
+            const realPass = passElem.dataset.realPass;
+            if (passElem.innerText.includes("•")) {
+                passElem.innerText = realPass;
+            } else {
+                passElem.innerText = "••••••••";
+            }
+        }
+
+        function copyText(elementId) {
+            const text = document.getElementById(elementId).innerText;
+            navigator.clipboard.writeText(text);
+            alert("Copied!");
+        }
+
+    </script>
+</body>
+</html>
