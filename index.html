@@ -154,7 +154,9 @@
             const encoded = btoa(jsonString);
 
             // Construct Link
-            const baseUrl = window.location.href.split('#')[0];
+                let baseUrl = window.location.href.split('#')[0];
+    if (!baseUrl.endsWith('/') && !baseUrl.endsWith('.html')) baseUrl += '/';
+
             const finalLink = `${baseUrl}#${encoded}`;
 
             // Show Result
